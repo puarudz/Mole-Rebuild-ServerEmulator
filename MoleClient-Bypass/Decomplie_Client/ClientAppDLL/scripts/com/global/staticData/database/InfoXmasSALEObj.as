@@ -1,0 +1,194 @@
+package com.global.staticData.database
+{
+   public class InfoXmasSALEObj
+   {
+      
+      public static const XmasSALEObj:Object = new Object();
+      
+      XmasSALEObj.SALEZone = [{
+         "id":160179,
+         "commodityID":100523,
+         "date":"2011,1,14",
+         "mibi":0.7,
+         "type":"小屋道具",
+         "note":"爆竹聲聲，迎新年。"
+      },{
+         "id":12240,
+         "commodityID":100164,
+         "date":"2011,1,15",
+         "mibi":0.8,
+         "type":"裝扮",
+         "note":"咩~咩~！我是快樂的小咩咩。"
+      },{
+         "id":12071,
+         "commodityID":100008,
+         "date":"2011,1,16",
+         "mibi":1.1,
+         "type":"裝扮",
+         "note":"我來扮演小兔子，搶胡蘿蔔。"
+      },{
+         "id":160155,
+         "commodityID":100364,
+         "date":"2011,1,17",
+         "mibi":2,
+         "type":"小屋道具",
+         "note":"聖誕節過去了，買塊地毯作紀念。"
+      },{
+         "id":12434,
+         "commodityID":100608,
+         "date":"2011,1,18",
+         "mibi":0.8,
+         "type":"裝扮",
+         "note":"可愛的小瓢蟲，圓鼓鼓的小腦袋。"
+      },{
+         "id":12624,
+         "commodityID":100165,
+         "date":"2011,1,19",
+         "mibi":1.4,
+         "type":"裝扮",
+         "note":"小咩咩吃青草，心情好好。"
+      },{
+         "id":160158,
+         "commodityID":100350,
+         "date":"2011,1,20",
+         "mibi":1.2,
+         "type":"小屋道具",
+         "note":"迷你的才是可愛的。"
+      }];
+      XmasSALEObj.classicZone = [{
+         "id":160014,
+         "commodityID":100088,
+         "mibi":1.1,
+         "type":"小屋道具",
+         "note":"花生外形的浴缸，增添泡浴樂趣。"
+      },{
+         "id":12070,
+         "commodityID":100009,
+         "mibi":0.7,
+         "type":"裝扮",
+         "note":"小兔子蹦蹦跳，胡蘿蔔我最愛。"
+      },{
+         "id":12085,
+         "commodityID":100782,
+         "mibi":0.4,
+         "type":"裝扮",
+         "note":"皇族的身份象徵。"
+      },{
+         "id":160262,
+         "commodityID":100633,
+         "mibi":1.3,
+         "type":"小屋道具",
+         "note":"小丑跳出來了，嚇一跳呢！"
+      },{
+         "id":12306,
+         "commodityID":100323,
+         "mibi":2,
+         "type":"裝扮",
+         "note":"除了萌，沒有別的形容詞來修飾了！"
+      },{
+         "id":12086,
+         "commodityID":100027,
+         "mibi":1.2,
+         "type":"裝扮",
+         "note":"童話裡美麗的天使，張開翅膀擁抱你。"
+      },{
+         "id":160368,
+         "commodityID":100216,
+         "mibi":0.4,
+         "type":"小屋道具",
+         "note":"軟軟大大的坐墊，讓小屋充滿溫馨。"
+      },{
+         "id":160263,
+         "commodityID":100622,
+         "mibi":0.4,
+         "type":"小屋道具",
+         "note":"甜甜的草莓和奶油也能做成衣櫃，好想吃一口！"
+      }];
+      XmasSALEObj.SLZone = [{
+         "id":160863,
+         "commodityID":100783,
+         "mibi":2,
+         "type":"小屋道具",
+         "note":"咚咚咚，禮兵敲鼓手來了！"
+      },{
+         "id":12290,
+         "commodityID":100023,
+         "mibi":0.8,
+         "type":"裝扮",
+         "note":"紅紅的傑西卡女裝，經典款式永不過時。"
+      },{
+         "id":12652,
+         "commodityID":100613,
+         "mibi":1.3,
+         "type":"裝扮",
+         "note":"嘎嘎嘎！小鴨子雨中遊！"
+      },{
+         "id":160360,
+         "commodityID":100668,
+         "mibi":1.1,
+         "type":"小屋道具",
+         "note":"菲尼克斯耶！我愛有關菲尼克斯的一切！"
+      },{
+         "id":1220159,
+         "commodityID":100780,
+         "mibi":6,
+         "type":"家園背景",
+         "note":"擺滿了聖誕禮盒的家園喲！"
+      },{
+         "id":160076,
+         "commodityID":100060,
+         "mibi":0.9,
+         "type":"小屋道具",
+         "note":"買個電視機收看春晚囉！"
+      },{
+         "id":160861,
+         "commodityID":100776,
+         "mibi":2,
+         "type":"小屋道具",
+         "note":"召喚雪花的娃娃，送你一地浪漫雪花。"
+      },{
+         "id":13665,
+         "commodityID":100777,
+         "mibi":0.7,
+         "type":"裝扮",
+         "note":"頭戴一枝花，好運伴隨她。"
+      }];
+      XmasSALEObj.HSZone = [{
+         "id":1230057,
+         "commodityID":100781,
+         "mibi":6,
+         "tips":"<b>樅樹種子</b>\n用途：\n    找大衛就能夠製作\n成華麗的聖誕樹喲！\n購買價格：0.3米幣/1個"
+      },{
+         "id":1230036,
+         "commodityID":100791,
+         "mibi":0.4,
+         "tips":"<b>搖錢樹種子</b>\n用途：\n    金元寶、銀元寶\n樹上掉下大財寶\n購買價格：0.4米幣/1個"
+      },{
+         "id":190813,
+         "commodityID":100779,
+         "mibi":0.8,
+         "tips":"<b>低能骨頭</b>\n用途：\n    善哉阿七的能量之源，吃了它\n善哉阿七的小宇宙就爆發了。\n購買價格：0.8米幣/1個"
+      },{
+         "id":1270033,
+         "commodityID":100766,
+         "mibi":0.6,
+         "tips":"<b>胖頭魚</b>\n用途：\n    胖頭魚不愧是是胖頭魚\n呀，肥肥的又鮮美。\n購買價格：0.6米幣/1個"
+      },{
+         "id":1230058,
+         "commodityID":100767,
+         "mibi":2,
+         "tips":"<b>囧蘑菇種子</b>\n用途：\n    想知道它如何發囧，\n生病的時候就知道了。\n購買價格：2米幣/1個"
+      },{
+         "id":12916,
+         "commodityID":100268,
+         "mibi":0.8,
+         "tips":"<b>麼麼公主書包</b>\n用途：\n    我是麼麼公主的粉絲，\n麼麼公主我愛你！\n購買價格：0.8米幣/1個"
+      }];
+      
+      public function InfoXmasSALEObj()
+      {
+         super();
+      }
+   }
+}
+

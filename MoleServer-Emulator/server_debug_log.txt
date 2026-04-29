@@ -1,0 +1,2 @@
+[13:12:43] [INFO] Mole TCP Server khởi động tại 0.0.0.0:7777
+[13:12:43] [INFO] Shop cache loaded: 2407 JD items, 28 Diandian items
