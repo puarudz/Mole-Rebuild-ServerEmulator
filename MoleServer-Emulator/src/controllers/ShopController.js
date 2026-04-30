@@ -2,6 +2,39 @@ const Logger = require("../core/Logger");
 const PacketBuilder = require("../core/PacketBuilder");
 const UserModel = require("../models/UserModel");
 const pool = require("../config/database");
+const fs = require("fs");
+const path = require("path");
+
+// ============================================================
+// Đọc toàn bộ item IDs từ MoleShop.xml làm fallback
+// ============================================================
+let XML_SHOP_ITEMS = null; // Array of item IDs (numbers)
+
+function loadXmlShopItems() {
+    if (XML_SHOP_ITEMS !== null) return XML_SHOP_ITEMS;
+    try {
+        // Tìm MoleShop.xml từ thư mục gốc dự án (2 cấp lên từ src/controllers)
+        const xmlPath = path.resolve(__dirname, "../../../resource/xml/MoleShop.xml");
+        const xml = fs.readFileSync(xmlPath, "utf8");
+        // Tìm tất cả id="XXXXX" trong các thẻ <item>
+        const matches = xml.matchAll(/<item\s+id="(\d+)"/g);
+        const ids = [];
+        const seen = new Set();
+        for (const m of matches) {
+            const id = parseInt(m[1]);
+            if (!seen.has(id)) {
+                seen.add(id);
+                ids.push(id);
+            }
+        }
+        XML_SHOP_ITEMS = ids;
+        Logger.log("INFO", `MoleShop.xml loaded: ${ids.length} item IDs làm fallback`);
+    } catch (err) {
+        Logger.log("WARNING", `Không đọc được MoleShop.xml: ${err.message}`);
+        XML_SHOP_ITEMS = [];
+    }
+    return XML_SHOP_ITEMS;
+}
 
 // ============================================================
 // Cache shop data từ DB (reload khi cần)
@@ -94,27 +127,46 @@ class ShopController {
         Logger.log("ACTION", `Xem danh sách shop (UserID: ${userID})`);
         if (!cacheLoaded) await loadShopCache();
 
+        const xmlIds = loadXmlShopItems();
         const vipInfo = await getUserVipInfo(userID);
-        const items = JD_GOODS_CACHE;
-        const count = Math.min(items.length, 200);
+        
+        // Tạo map giá trị từ DB
+        const dbPrices = new Map();
+        for (const jdItem of JD_GOODS_CACHE) {
+            const price = calcPrice(jdItem, null, vipInfo.isVip);
+            const jdIds = String(jdItem.item_ids).split("|").map(Number);
+            for (const id of jdIds) {
+                if (id > 0) dbPrices.set(id, price);
+            }
+            if (jdItem.commodity_id > 0 && !dbPrices.has(jdItem.commodity_id)) {
+                dbPrices.set(jdItem.commodity_id, price);
+            }
+        }
+        
+        // Chỉ gửi những item CÓ mặt trong XML. Nếu client nhận được item ID không có trong XML, nó sẽ crash (Error #1010).
+        const allItems = [];
+        for (const id of xmlIds) {
+            let price = dbPrices.has(id) ? dbPrices.get(id) : 100; // Giá mặc định 100 nếu không có trong DB
+            allItems.push({ itemID: id, price: price });
+        }
 
+        const count = allItems.length;
+
+        // Cấp phát buffer
         const body = Buffer.alloc(4 + count * 12);
         let offset = 0;
         body.writeUInt32BE(count, offset); offset += 4;
 
         for (let i = 0; i < count; i++) {
-            const item = items[i];
-            const firstItemID = parseInt(String(item.item_ids).split("|")[0]) || 0;
-            const price = calcPrice(item, null, vipInfo.isVip);
-            body.writeUInt32BE(firstItemID, offset); offset += 4;
-            body.writeUInt32BE(price, offset); offset += 4;
-            body.writeUInt32BE(1, offset); offset += 4;
+            body.writeUInt32BE(allItems[i].itemID, offset); offset += 4;
+            body.writeUInt32BE(allItems[i].price, offset); offset += 4;
+            body.writeUInt32BE(1, offset); offset += 4; // flag (1 = đang bán)
         }
 
         const head = PacketBuilder.makeHead(509, userID, 0, body.length);
         socket.write(head);
         socket.write(body);
-        Logger.log("RESPONSE", `Gửi danh sách shop (Items: ${count})`);
+        Logger.log("RESPONSE", `Gửi danh sách shop (Items: ${count} items từ XML)`);
     }
 
     /**

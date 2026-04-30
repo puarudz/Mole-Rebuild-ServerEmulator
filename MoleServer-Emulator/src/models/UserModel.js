@@ -56,12 +56,61 @@ class UserModel {
         }
     }
 
+    // Verify password for an existing user
+    // DB lưu: MD5(plaintext_password) — single hash
+    // Client có thể gửi: MD5(plaintext) hoặc MD5(MD5(plaintext))
+    async verifyPassword(userID, password) {
+        try {
+            const CryptoUtils = require("../core/CryptoUtils");
+            
+            //console.log(`[VERIFY] userID=${userID}, clientPass="${password}"`);
+            
+            const [rows] = await pool.query(
+                "SELECT user_id, password FROM users WHERE user_id = ?",
+                [userID]
+            );
+            if (rows.length === 0) {
+                //console.log(`[VERIFY] Không tìm thấy user ${userID} trong DB`);
+                return false;
+            }
+            
+            const dbPassword = rows[0].password.toLowerCase();   // MD5(plaintext)
+            const md5OfDb = CryptoUtils.md5(dbPassword);          // MD5(MD5(plaintext)) = double hash
+            const md5OfClient = CryptoUtils.md5(password);        // MD5 của client gửi
+            
+            //console.log(`[VERIFY] dbPassword (MD5(plain))  = ${dbPassword}`);
+            //console.log(`[VERIFY] md5OfDb   (double hash)  = ${md5OfDb}`);
+            //console.log(`[VERIFY] md5OfClient (hash client)  = ${md5OfClient}`);
+            //console.log(`[VERIFY] client === dbPassword: ${password === dbPassword}`);
+            //console.log(`[VERIFY] client === md5OfDb:    ${password === md5OfDb}`);
+            //console.log(`[VERIFY] md5OfClient === dbPassword: ${md5OfClient === dbPassword}`);
+            
+            // Client gửi single hash = MD5(plaintext)
+            // Client gửi double hash = MD5(MD5(plaintext))
+            // Client gửi plaintext (hiếm)
+            return password === dbPassword           // client gửi single hash
+                || password === md5OfDb              // client gửi double hash
+                || md5OfClient === dbPassword;       // client gửi plaintext
+        } catch (error) {
+            console.error("Lỗi khi xác thực mật khẩu:", error);
+            return false;
+        }
+    }
+
     // Auto create user if not exists
     async createUser(userID, password) {
         try {
             // Check if ID is already used
             const existing = await this.fetchUserFromDB(userID);
-            if (existing) return existing; // Trả về nếu đã tồn tại (không trùng)
+            if (existing) {
+                // Verify password for existing user
+                const valid = await this.verifyPassword(userID, password);
+                if (!valid) {
+                    //console.log(`Đăng nhập thất bại: Sai mật khẩu cho UserID ${userID}`);
+                    return null;
+                }
+                return existing;
+            }
 
             // Nếu userID = 0 (client không truyền), random một userID mới từ 20000000
             if (userID === 0) {
@@ -69,14 +118,15 @@ class UserModel {
                 userID = result[0].maxID ? Math.max(20000000, result[0].maxID + 1) : 20000000;
             }
 
-            // Tạo account mới
+            // Tạo account mới — lưu password client gửi trực tiếp (không MD5 thêm)
+            // Client gửi double hash = MD5(MD5(plaintext)), DB lưu giá trị này
             await pool.query(
                 `INSERT INTO users (user_id, password, nick, color, coins, vip_flags, vip_level, vip_month, vip_value, vip_end_time, auto_pay_vip, jd_coins, dian_coins)
-                 VALUES (?, MD5(?), ?, ?, ?, 33, 8, 12, 9999, 2145916800, 1, 99999, 99999)`,
+                 VALUES (?, ?, ?, ?, ?, 33, 8, 12, 9999, 2145916800, 1, 99999, 99999)`,
                 [userID, password, "NewMole", 8028160, 10000]
             );
             
-            console.log(`Đã tạo mới nhân vật thành công với UserID: ${userID}`);
+            //console.log(`Đã tạo mới nhân vật thành công với UserID: ${userID}`);
             return await this.fetchUserFromDB(userID);
         } catch (error) {
             console.error("Lỗi khi tạo mới user:", error);

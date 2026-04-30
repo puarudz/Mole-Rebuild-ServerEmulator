@@ -9,10 +9,18 @@ class AuthController {
 
         const userID = data.readUInt32BE(9);
 
-        // Payload starts at 17, password is usually a 32-byte hex string starting there or shortly after
-        const passwordBuffer = data.subarray(17);
+        // Password starts at offset 13 (same as old tcp-server.js), not 17
+        const passwordBuffer = data.subarray(13, 56);
         let password = passwordBuffer.toString("utf-8").replace(/\0/g, "").trim();
         password = password.match(/[a-f0-9]{32}/i)?.[0]?.toLowerCase() || "";
+
+        // DEBUG: In toàn bộ packet và password đã trích xuất
+        Logger.log("DEBUG", `=== LOGIN PACKET DEBUG ===`);
+        Logger.log("DEBUG", `Full packet hex: ${data.toString("hex")}`);
+        Logger.log("DEBUG", `Packet length: ${data.length}, userID: ${userID}`);
+        Logger.log("DEBUG", `Raw bytes 13-56 hex: ${passwordBuffer.toString("hex")}`);
+        Logger.log("DEBUG", `Raw bytes 13-56 utf8: ${passwordBuffer.toString("utf-8")}`);
+        Logger.log("DEBUG", `Extracted password: "${password}" (len=${password.length})`);
 
         Logger.log("INFO", `Đang xác thực UserID: ${userID}`);
 

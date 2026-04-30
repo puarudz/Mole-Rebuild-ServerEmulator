@@ -2,6 +2,7 @@ const Logger = require("../core/Logger");
 const PacketBuilder = require("../core/PacketBuilder");
 const UserModel = require("../models/UserModel");
 const MapModel = require("../models/MapModel");
+const pool = require("../config/database");
 
 class ActionController {
     static handleWalk(socket, userID, data) {
@@ -116,6 +117,12 @@ class ActionController {
                 }
             }
             Logger.log("CHAT", `[${user.userID}] ${user.nick}: ${message}`);
+
+            // Lưu lịch sử chat public
+            pool.query(
+                "INSERT INTO chat_history (sender_id, target_id, sender_nick, message, map_id) VALUES (?, 0, ?, ?, ?)",
+                [user.userID, user.nick, message, user.map || 0]
+            ).catch(err => Logger.log("ERROR", "Lỗi lưu lịch sử chat: " + err.message));
         } else {
             // Private Chat
             const targetUser = UserModel.getUser(toWho);
@@ -130,7 +137,23 @@ class ActionController {
                 const head = PacketBuilder.makeHead(302, targetUser.userID, 0, body.length);
                 targetUser.socket.write(head);
                 targetUser.socket.write(body);
+
+                // Gửi lại cho chính mình để hiển thị trong khung chat
+                const selfHead = PacketBuilder.makeHead(302, user.userID, 0, body.length);
+                user.socket.write(selfHead);
+                user.socket.write(body);
+
+                Logger.log("CHAT", `[PM] ${user.userID} -> ${toWho}: ${message}`);
+            } else {
+                // Người nhận offline → lưu tin nhắn vào DB để xem sau
+                Logger.log("CHAT", `[PM-OFFLINE] ${user.userID} -> ${toWho}: ${message} (người nhận offline)`);
             }
+
+            // Lưu lịch sử chat riêng
+            pool.query(
+                "INSERT INTO chat_history (sender_id, target_id, sender_nick, message, map_id) VALUES (?, ?, ?, ?, ?)",
+                [user.userID, toWho, user.nick, message, user.map || 0]
+            ).catch(err => Logger.log("ERROR", "Lỗi lưu lịch sử chat riêng: " + err.message));
         }
     }
 

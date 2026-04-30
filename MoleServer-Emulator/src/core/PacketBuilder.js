@@ -25,7 +25,7 @@ class PacketBuilder {
         writeUInt32(user.color || 0x7A0000);      // 6. Color            readUnsignedInt
         writeUInt32(user.vipFlags ?? 33);          // 7. Vip bitmask: bit0=VIP, bit5=onceVIP  readUnsignedInt
         writeUInt32(user.role_type || 0);         // 8. roleType         readUnsignedInt
-        writeUInt32(Math.floor(Date.now() / 1000)); // 9. Birthday       readUnsignedInt
+        writeUInt32(user.birthday || 0);          // 9. Birthday (0 = Jan 1 1970, bypass Task382 crash)  readUnsignedInt
         writeUInt32(user.exp || 0);               // 10. Exp             readUnsignedInt
         writeUInt32(user.strong || 0);            // 11. Strong          readUnsignedInt
         writeUInt32(user.iq || 0);                // 12. IQ              readUnsignedInt

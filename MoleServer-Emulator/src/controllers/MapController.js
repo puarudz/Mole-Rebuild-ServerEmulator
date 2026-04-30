@@ -5,20 +5,30 @@ const MapModel = require("../models/MapModel");
 
 class MapController {
     static handleEnterMap(socket, userID, data) {
-        Logger.log("ACTION", `進入地圖 (UserID: ${userID})`);
+        // Debug: dump raw packet
+        Logger.log("DEBUG", `[CMD 401 RAW] len=${data.length}, hex=${data.toString('hex').substring(0, 60)}`);
         const user = UserModel.getUser(userID);
-        if (!user) return;
+        if (!user) {
+            Logger.log("ERROR", `User ${userID} không tồn tại, không thể vào map`);
+            return;
+        }
 
         const newMapID = data.length >= 21 ? data.readUInt32BE(17) : 0;
         const newMapType = data.length >= 25 ? data.readUInt32BE(21) : 0;
+        const oldMapID = data.length >= 29 ? data.readUInt32BE(25) : 0;
+        const oldMapType = data.length >= 33 ? data.readUInt32BE(29) : 0;
 
-        Logger.log("ACTION", `使用者 ${userID} 進入地圖 (MapID: ${newMapID})`);
+        const isHome = newMapID > 2000000000;
+        Logger.log("ACTION", `使用者 ${userID} 進入地圖 (MapID: ${newMapID}, MapType: ${newMapType}, OldMapID: ${oldMapID}, OldMapType: ${oldMapType}, isHome: ${isHome})`);
 
-        // Rời map cũ
+        // Rời map cũ (nếu user.map > 0 mới có map cũ để rời)
         const oldMapUsers = MapModel.removeUserFromMap(user, UserModel);
-        if (oldMapUsers) {
+        if (oldMapUsers && oldMapUsers.length > 0) {
             this.broadcastLeaveMap(oldMapUsers, user);
         }
+
+        // Cập nhật socket hiện tại (đảm bảo socket luôn đúng)
+        user.socket = socket;
 
         // Vào map mới
         user.map = newMapID;
@@ -27,8 +37,28 @@ class MapController {
         MapModel.addUserToMap(user, newMapID, UserModel);
         UserModel.setUser(userID, user);
 
+        // 1. Gửi CMD 401 cho CHÍNH NGƯỜI VÀO MAP (để client có ENTER_MAP_ROOM event)
+        const selfBody = PacketBuilder.makeEnterMapOrRoomUserInfo(user);
+        Logger.log("DEBUG", `[CMD 401 RESP] BodySize=${selfBody.length}, PkgLen=${17 + selfBody.length}`);
+        const selfHead = PacketBuilder.makeHead(401, userID, 0, selfBody.length);
+        socket.write(selfHead);
+        socket.write(selfBody);
+        Logger.log("RESPONSE", `Gửi CMD 401 cho chính người vào map (UserID: ${userID}, MapID: ${newMapID})`);
+
+        // 2. Broadcast CMD 401 cho NHỮNG NGƯỜI KHÁC trong map (không gửi lại cho người vào)
         const mapUsers = MapModel.getUsersByMap(newMapID, UserModel);
-        this.broadcastEnterMap(mapUsers, user);
+        let broadcastCount = 0;
+        for (const u of mapUsers) {
+            if (u.userID !== userID && u.socket) {
+                const head = PacketBuilder.makeHead(401, u.userID, 0, selfBody.length);
+                u.socket.write(head);
+                u.socket.write(selfBody);
+                broadcastCount++;
+            }
+        }
+        if (broadcastCount > 0) {
+            Logger.log("RESPONSE", `Broadcast CMD 401 đến ${broadcastCount} người khác trong map`);
+        }
     }
 
     static broadcastEnterMap(mapUsers, userEntering) {
@@ -61,14 +91,42 @@ class MapController {
     static handleLeaveMap(socket, userID) {
         Logger.log("ACTION", `Rời Map (UserID: ${userID})`);
         const user = UserModel.getUser(userID);
-        if (user) {
-            const oldMapUsers = MapModel.removeUserFromMap(user, UserModel);
-            if (oldMapUsers) {
-                this.broadcastLeaveMap(oldMapUsers, user);
-            }
-            user.map = 0;
-            UserModel.setUser(userID, user);
+        if (!user) {
+            Logger.log("ERROR", `User ${userID} không tồn tại khi rời map`);
+            return;
         }
+        user.socket = socket;
+
+        const oldMapUsers = MapModel.removeUserFromMap(user, UserModel);
+
+        // LUÔN gửi CMD 402 cho CHÍNH NGƯỜI RỜI MAP (để client có LEAVE_ROOM_MYSELF event)
+        // Nếu không gửi, client sẽ treo vĩnh viễn chờ response
+        const leaveBody = Buffer.alloc(8);
+        leaveBody.writeUInt32BE(1, 0);
+        leaveBody.writeUInt32BE(userID, 4);
+        const selfHead = PacketBuilder.makeHead(402, userID, 0, leaveBody.length);
+        socket.write(selfHead);
+        socket.write(leaveBody);
+        Logger.log("RESPONSE", `Gửi CMD 402 cho chính người rời map (UserID: ${userID})`);
+
+        // Broadcast CMD 402 cho NHỮNG NGƯỜI KHÁC trong map cũ (nếu có)
+        if (oldMapUsers && oldMapUsers.length > 0) {
+            let leaveBroadcastCount = 0;
+            for (const u of oldMapUsers) {
+                if (u.socket) {
+                    const head = PacketBuilder.makeHead(402, u.userID, 0, leaveBody.length);
+                    u.socket.write(head);
+                    u.socket.write(leaveBody);
+                    leaveBroadcastCount++;
+                }
+            }
+            if (leaveBroadcastCount > 0) {
+                Logger.log("RESPONSE", `Broadcast CMD 402 đến ${leaveBroadcastCount} người khác trong map`);
+            }
+        }
+
+        user.map = 0;
+        UserModel.setUser(userID, user);
     }
 
     static handleAllSceneUser(socket, userID, data) {
@@ -123,36 +181,66 @@ class MapController {
         socket.write(body);
     }
 
+    /**
+     * CMD 1301 - GetHomeInfo (Về Nhà / Xem nhà)
+     * 
+     * Client gửi: PkgLen=21, Header(17) + targetUserID(4)
+     * Server trả về format theo GetHomeInfoRes.GetInfo():
+     *   UserID(4) + Name(16) + Online(4) + HouseBackground(4) + ItemCount(4) + PlantCount(4)
+     *   + Items[] (mỗi item 16 bytes: ID:4,PosX:2,PosY:2,Dir:1,Vis:1,Layer:1,Type:1,Other:4)
+     *   + Plants[] (SeedParse format)
+     * 
+     * LƯU Ý: CMD 1301 khác với CMD 409 - HouseBackground chỉ là 4 byte ID,
+     * KHÔNG phải là full HouseBGObj 16 byte như CMD 409.
+     * 
+     * QUAN TRỌNG: Client yêu cầu ItemCount >= 1, item đầu tiên (homeItemArr[0])
+     * phải là house background (Layer=6) vì HomeLogic.homeBGID đọc homeItemArr[0].ID
+     * và HouseBGcompleteHandler đọc homeItemArr[0].PosX/PosY/Direction.
+     */
     static handleGetHomeInfo(socket, userID, data) {
-        Logger.log("ACTION", `Xem nhà người dùng (UserID: ${userID})`);
+        Logger.log("DEBUG", `[CMD 1301 RAW] len=${data.length}, hex=${data.toString('hex').substring(0, 60)}`);
+        Logger.log("ACTION", `Xem nhà người dùng (CMD 1301, UserID: ${userID})`);
         const targetUserID = data && data.length >= 21 ? data.readUInt32BE(17) : userID;
+        Logger.log("DEBUG", `[CMD 1301] targetUserID=${targetUserID}, userID=${userID}`);
 
-        // Dùng buffer 100 byte (dư 64 byte) để nếu Client yêu cầu thêm các trường mới (level, exp...) thì không bị EOFError.
-        const body = Buffer.alloc(100);
-        let offset = 0;
-        body.writeUInt32BE(targetUserID, offset); offset += 4; // UserID
-        const nickBuf = Buffer.alloc(16, 0);
-        nickBuf.write("Home", 0, "utf8");
-        nickBuf.copy(body, offset); offset += 16; // Name
-        body.writeUInt32BE(1, offset); offset += 4; // Online
-        body.writeUInt32BE(160030, offset); offset += 4; // HouseBackground (resource/goods/BGinHome/160030.swf)
-        body.writeUInt32BE(1, offset); offset += 4; // ItemCount = 1 (Bắt buộc phải >= 1 vì client gọi itemArr[0])
-        body.writeUInt32BE(0, offset); offset += 4; // PlantCount = 0
+        // Luôn cập nhật socket cho user hiện tại
+        const user = UserModel.getUser(userID);
+        if (user) user.socket = socket;
+        const targetUser = UserModel.getUser(targetUserID) || user;
+        const nick = targetUser ? (targetUser.nick || "Home") : "Home";
+
+        const HOUSE_BG_ID = 160030;  // ID nền nhà mặc định
         
-        // Item 0 (16 bytes) - Default Home BG
-        body.writeUInt32BE(1220001, offset); offset += 4; // ID (1220001 exists in resource/home/item/swf/)
-        body.writeInt16BE(450, offset); offset += 2;      // PosX
-        body.writeInt16BE(200, offset); offset += 2;      // PosY
-        body.writeUInt8(0, offset); offset += 1;          // Direction
-        body.writeUInt8(1, offset); offset += 1;          // Visible
-        body.writeUInt8(0, offset); offset += 1;          // Layer
-        body.writeUInt8(0, offset); offset += 1;          // Type
-        body.writeUInt32BE(0, offset); offset += 4;       // Other
+        // Header: UserID(4) + Name(16) + Online(4) + HouseBackground(4) + ItemCount(4) + PlantCount(4) = 36 bytes
+        // + 1 item (house BG): 16 bytes = 52 bytes total
+        const ITEM_COUNT = 1;  // Phải >= 1: item đầu tiên là house background
+        const PLANT_COUNT = 0;
+        const body = Buffer.alloc(36 + ITEM_COUNT * 16);
+        let offset = 0;
+        body.writeUInt32BE(targetUserID, offset); offset += 4;       // UserID
+        const nickBuf = Buffer.alloc(16, 0);
+        nickBuf.write(nick, 0, "utf8");
+        nickBuf.copy(body, offset); offset += 16;                    // Name (16 bytes)
+        body.writeUInt32BE(1, offset); offset += 4;                  // Online (1=online)
+        body.writeUInt32BE(HOUSE_BG_ID, offset); offset += 4;        // HouseBackground (chỉ 4 byte ID)
+        body.writeUInt32BE(ITEM_COUNT, offset); offset += 4;         // ItemCount = 1
+        body.writeUInt32BE(PLANT_COUNT, offset); offset += 4;        // PlantCount = 0
+        
+        // Item[0]: House Background (Layer=6)
+        // Format: ID(4), PosX(2), PosY(2), Direction(1), Visible(1), Layer(1), Type(1), Other(4)
+        body.writeUInt32BE(HOUSE_BG_ID, offset); offset += 4;        // ID
+        body.writeInt16BE(450, offset); offset += 2;                  // PosX (center)
+        body.writeInt16BE(200, offset); offset += 2;                  // PosY
+        body.writeUInt8(1, offset); offset += 1;                      // Direction (1 = right)
+        body.writeUInt8(1, offset); offset += 1;                      // Visible
+        body.writeUInt8(6, offset); offset += 1;                      // Layer (6 = House Background)
+        body.writeUInt8(0, offset); offset += 1;                      // Type
+        body.writeUInt32BE(0, offset); offset += 4;                   // Other
         
         const head = PacketBuilder.makeHead(1301, userID, 0, offset);
         socket.write(head);
         socket.write(body.slice(0, offset));
-        Logger.log("RESPONSE", `Gửi thông tin nhà (UserID: ${userID}, Target: ${targetUserID})`);
+        Logger.log("RESPONSE", `Gửi thông tin nhà CMD 1301 (UserID: ${userID}, Target: ${targetUserID}, BodySize: ${offset}, PkgLen: ${17 + offset}, Items: ${ITEM_COUNT})`);
     }
 
     /**
@@ -168,10 +256,10 @@ class MapController {
         }
         
         const user = UserModel.getUser(userID);
+        if (user) user.socket = socket;
         const targetUser = UserModel.getUser(targetUserID) || user;
         const nick = targetUser ? (targetUser.nick || "Home") : "Home";
         
-        // Format theo getRoomInfo.GetRoomInfoRes
         const body = Buffer.alloc(44);
         let offset = 0;
         body.writeUInt32BE(targetUserID, offset); offset += 4;       // UserID chủ nhà
@@ -181,17 +269,17 @@ class MapController {
         body.writeUInt32BE(1, offset); offset += 4;                  // Online (1=online)
         
         // HouseBGObj (16 bytes)
-        body.writeUInt32BE(160030, offset); offset += 4;              // ID (HouseBG = 160030)
+        body.writeUInt32BE(160030, offset); offset += 4;              // ID
         body.writeInt16BE(0, offset); offset += 2;                   // PosX
         body.writeInt16BE(0, offset); offset += 2;                   // PosY
         body.writeUInt8(0, offset); offset += 1;                     // Direction
         body.writeUInt8(1, offset); offset += 1;                     // Visible
-        body.writeUInt8(0, offset); offset += 1;                     // Layer
+        body.writeUInt8(6, offset); offset += 1;                     // Layer (6 = House Background)
         body.writeUInt8(0, offset); offset += 1;                     // Type
         body.writeUInt8(0, offset); offset += 1;                     // Rotation
         body.write("   ", offset, 3, "utf8"); offset += 3;           // Reserved (3 bytes)
         
-        body.writeUInt32BE(0, offset); offset += 4;                  // ItemCount (0 = không có đồ trong nhà)
+        body.writeUInt32BE(0, offset); offset += 4;                  // ItemCount (0)
 
         const head = PacketBuilder.makeHead(409, userID, 0, offset);
         socket.write(head);
@@ -339,30 +427,10 @@ class MapController {
             socket.write(head);
             socket.write(body);
         } else {
-            Logger.log("ERROR", `Không tìm thấy UserID: ${targetUserID} cho lệnh 204`);
-            // Create a fake user object for the NPC to satisfy the client parser.
-            const fakeUser = {
-                userID: targetUserID,
-                roleTime: 1209600,
-                nick: "NPC",
-                color: 0xFFFFFF,
-                isVIP: false,
-                isGuide: false,
-                vipLevel: 0,
-                vipMonth: 0,
-                map: 0,
-                mapType: 0,
-                x: 0,
-                y: 0,
-                action: 0,
-                direction: 0,
-                items: [],
-                status: 0
-            };
-            const body = PacketBuilder.makeSceneUserInfo(fakeUser);
-            const head = PacketBuilder.makeHead(204, userID, 0, body.length);
+            Logger.log("ERROR", `Không tìm thấy UserID: ${targetUserID} cho lệnh 204. Nếu đây là NPC, bỏ qua.`);
+            // Không gửi fakeUser, để client tự xử lý NPC
+            const head = PacketBuilder.makeHead(204, userID, 10008, 0); // 10008 = User not found
             socket.write(head);
-            socket.write(body);
         }
     }
 
@@ -395,7 +463,7 @@ class MapController {
     /*** Xử lý Lấy danh sách quà hộp (CMD 1319) ***/
     static handleGetGoodsInBoxList(socket, userID, data) {
         Logger.log("ACTION", `Lấy danh sách người nhận quà nhà (UserID: ${userID})`);
-        // Format: Count (4 bytes)
+        // Format: Count (4 bytes - readUnsignedInt)
         const body = Buffer.alloc(4);
         body.writeUInt32BE(0, 0); // len = 0
 
@@ -403,6 +471,80 @@ class MapController {
         socket.write(head);
         socket.write(body);
         Logger.log("RESPONSE", `Gửi danh sách quà trống`);
+    }
+
+    /*** Xử lý SaveHomeInfo (CMD 1302) - Lưu thông tin nhà ***/
+    static handleSaveHomeInfo(socket, userID, data) {
+        Logger.log("ACTION", `Lưu thông tin nhà (CMD 1302, UserID: ${userID})`);
+        // Response: chỉ cần result=0 (thành công), không cần body
+        const head = PacketBuilder.makeHead(1302, userID, 0, 0);
+        socket.write(head);
+        Logger.log("RESPONSE", `Xác nhận lưu thông tin nhà thành công`);
+    }
+
+    /*** Xử lý SaveHomeUsed (CMD 1312) - Lưu vật phẩm đã dùng trong nhà ***/
+    static handleSaveHomeUsed(socket, userID, data) {
+        Logger.log("ACTION", `Lưu vật phẩm đã dùng trong nhà (CMD 1312, UserID: ${userID})`);
+        // Response: chỉ cần result=0 (thành công), không cần body
+        const head = PacketBuilder.makeHead(1312, userID, 0, 0);
+        socket.write(head);
+        Logger.log("RESPONSE", `Xác nhận lưu vật phẩm nhà thành công`);
+    }
+
+    /*** Xử lý GetGoodsInBox (CMD 1318) - Lấy quà trong hộp ***/
+    static handleGetGoodsInBox(socket, userID, data) {
+        Logger.log("ACTION", `Lấy quà trong hộp (CMD 1318, UserID: ${userID})`);
+        // Response: chỉ cần result=0 (thành công), không cần body
+        const head = PacketBuilder.makeHead(1318, userID, 0, 0);
+        socket.write(head);
+        Logger.log("RESPONSE", `Xác nhận lấy quà thành công`);
+    }
+
+    /*** Xử lý GetRoomList (CMD 412) - Danh sách phòng VIP ***/
+    static handleGetRoomList(socket, userID, data) {
+        Logger.log("ACTION", `Lấy danh sách phòng VIP (CMD 412, UserID: ${userID})`);
+        // Format: Count(4) + mỗi phòng: UserID(4), Name(16), Vip(4), UserNum(4)
+        const body = Buffer.alloc(4);
+        body.writeUInt32BE(0, 0); // Count = 0 (không có phòng VIP)
+
+        const head = PacketBuilder.makeHead(412, userID, 0, body.length);
+        socket.write(head);
+        socket.write(body);
+        Logger.log("RESPONSE", `Gửi danh sách phòng VIP trống`);
+    }
+
+    /*** Xử lý UserExist (CMD 1313) - Kiểm tra user tồn tại ***/
+    static handleUserExist(socket, userID, data) {
+        let targetUserID = userID;
+        if (data && data.length >= 21) {
+            targetUserID = data.readUInt32BE(17);
+        }
+        Logger.log("ACTION", `Kiểm tra user tồn tại (CMD 1313, UserID: ${userID}, Target: ${targetUserID})`);
+        const targetUser = UserModel.getUser(targetUserID);
+        const exists = targetUser ? 1 : 0;
+        const body = Buffer.alloc(4);
+        body.writeUInt32BE(exists, 0);
+        const head = PacketBuilder.makeHead(1313, userID, 0, body.length);
+        socket.write(head);
+        socket.write(body);
+        Logger.log("RESPONSE", `UserExist: ${exists ? "Tồn tại" : "Không tồn tại"}`);
+    }
+
+    /*** Xử lý UserFlag (CMD 1314) - Lấy cờ user ***/
+    static handleUserFlag(socket, userID, data) {
+        let targetUserID = userID;
+        if (data && data.length >= 21) {
+            targetUserID = data.readUInt32BE(17);
+        }
+        Logger.log("ACTION", `Lấy cờ user (CMD 1314, UserID: ${userID}, Target: ${targetUserID})`);
+        const targetUser = UserModel.getUser(targetUserID);
+        const flag = targetUser ? (targetUser.lockHome || 0) : 0;
+        const body = Buffer.alloc(4);
+        body.writeUInt32BE(flag, 0);
+        const head = PacketBuilder.makeHead(1314, userID, 0, body.length);
+        socket.write(head);
+        socket.write(body);
+        Logger.log("RESPONSE", `UserFlag: ${flag}`);
     }
 }
 module.exports = MapController;
