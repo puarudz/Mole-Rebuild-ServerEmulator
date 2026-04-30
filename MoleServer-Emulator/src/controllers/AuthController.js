@@ -3,6 +3,23 @@ const CryptoUtils = require("../core/CryptoUtils");
 const PacketBuilder = require("../core/PacketBuilder");
 const UserModel = require("../models/UserModel");
 
+async function attachPetState(user) {
+    const pet = await UserModel.loadUserPet(user.userID || user.user_id);
+    if (!pet) {
+        user.petID = 0;
+        user.petNick = "";
+        user.petColor = 0;
+        user.petLevel = 0;
+        user.petAction = 0;
+        return;
+    }
+    user.petID = pet.follow || pet.onMap ? pet.spriteID : 0;
+    user.petNick = pet.nick;
+    user.petColor = pet.color;
+    user.petLevel = pet.level;
+    user.petAction = pet.follow || pet.onMap ? 1 : 0;
+}
+
 class AuthController {
     static async handleLogin(socket, data) {
         Logger.log("ACTION", `Yêu cầu đăng nhập - ${socket.remoteAddress}`);
@@ -124,6 +141,8 @@ class AuthController {
             Logger.log("ERROR", `Không tìm thấy user ${userID} trong DB khi đăng nhập Online Server`);
             return;
         }
+
+        await attachPetState(user);
 
         // Cập nhật socket
         user.socket = socket;

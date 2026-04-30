@@ -8,6 +8,10 @@ const AuthController = require("./src/controllers/AuthController");
 const MapController = require("./src/controllers/MapController");
 const ActionController = require("./src/controllers/ActionController");
 const ShopController = require("./src/controllers/ShopController");
+const HomeController = require("./src/controllers/HomeController");
+const FriendController = require("./src/controllers/FriendController");
+const JJLCardController = require("./src/controllers/JJLCardController");
+const PetController = require("./src/controllers/PetController");
 const UserModel = require("./src/models/UserModel");
 
 class MoleServer {
@@ -90,6 +94,18 @@ class MoleServer {
                 case 201: // Đăng nhập Online Server
                     await AuthController.handleLoginOnlineServer(socket, userID, data);
                     break;
+                case 211: // Nhận Lamu
+                    await PetController.handleAdoptPet(socket, userID);
+                    break;
+                case 212: // Lấy thông tin Lamu
+                    await PetController.handlePetInfo(socket, userID, data);
+                    break;
+                case 214: // Số lượng Lamu
+                    await PetController.handlePetNum(socket, userID);
+                    break;
+                case 215: // Mang Lamu theo
+                    await PetController.handlePetFollow(socket, userID, data);
+                    break;
                 case 204: // Get Scene User Info (NPC interaction, etc)
                     MapController.handleGetSceneUserInfo(socket, userID, data);
                     break;
@@ -98,6 +114,27 @@ class MoleServer {
                     break;
                 case 208: // Modify User Nickname
                     await ActionController.handleModUserNickName(socket, userID, data);
+                    break;
+                case 218: // Đổi tên Lamu
+                    await PetController.handlePetNick(socket, userID, data);
+                    break;
+                case 219: // Chơi / huấn luyện Lamu
+                    await PetController.handlePetPlay(socket, userID, data);
+                    break;
+                case 220: // Lưu vị trí Lamu
+                    await PetController.handlePetPos(socket, userID, data);
+                    break;
+                case 232: // Kiểm tra Super Lamu
+                    await PetController.handleSuperLamuCheck(socket, userID);
+                    break;
+                case 233: // Đếm Lamu trên map
+                    await PetController.handlePetCountInMap(socket, userID);
+                    break;
+                case 235: // Đưa Lamu ra map/nhà
+                    await PetController.handlePetFollowOut(socket, userID, data);
+                    break;
+                case 237: // Chăm sóc Lamu bằng đạo cụ
+                    await PetController.handlePetTool(socket, userID, data);
                     break;
                 case 209: // Modify User Color
                     MapController.handleModUserColor(socket, userID, data);
@@ -137,14 +174,9 @@ class MoleServer {
                     MapController.handleMapLoaded(socket, userID);
                     break;
                 case 409: // Get Room Info (Về nhà)
-                    MapController.handleGetRoomInfo(socket, userID, data);
+                    await HomeController.handleGetRoomInfo(socket, userID, data);
                     break;
-                case 410: // Save Room Item
-                    MapController.handleSaveRoomItem(socket, userID, data);
-                    break;
-                case 415: // Save Room BG
-                    MapController.handleSaveRoomBG(socket, userID, data);
-                    break;
+                // CMD 410 và 415 được xử lý bởi HomeController (xem bên dưới)
                 case 501: // Mua vật phẩm từ NPC Shop
                     await ShopController.handleBuyItem(socket, userID, data);
                     break;
@@ -155,7 +187,7 @@ class MoleServer {
                     ShopController.handleUseItem(socket, userID, data);
                     break;
                 case 505: // Cho thú cưng ăn
-                    ShopController.handlePetFood(socket, userID);
+                    await ShopController.handlePetFood(socket, userID);
                     break;
                 case 507: // Xem túi đồ
                     await ShopController.handleViewInventory(socket, userID, data);
@@ -175,26 +207,89 @@ class MoleServer {
                 case 1389: // Buy Cloth
                     await ShopController.handleBuyCloth(socket, userID, data);
                     break;
+                case 1400: // SetJJLCard
+                    await JJLCardController.handleSetJJLCard(socket, userID, data);
+                    break;
+                case 1401: // GetJJLCard
+                    await JJLCardController.handleGetJJLCard(socket, userID, data);
+                    break;
+                case 1402: // ExchangeJJLCard
+                    await JJLCardController.handleExchangeJJLCard(socket, userID, data);
+                    break;
+                case 1403: // SearchJJLCard
+                    await JJLCardController.handleSearchJJLCard(socket, userID, data);
+                    break;
+                case 1404: // ExchangeJJLCloth
+                    await JJLCardController.handleExchangeJJLCloth(socket, userID, data);
+                    break;
                 case 1243: // Exchange Item (Super Lamu Gift etc)
                     await ShopController.handleExchangeItem(socket, userID, data);
                     break;
-                case 1301:
-                    MapController.handleGetHomeInfo(socket, userID, data);
+                case 1301: // GetHomeInfo
+                    await HomeController.handleGetHomeInfo(socket, userID, data);
                     break;
-                case 1303:
-                    MapController.handleGetHomeDepotInfo(socket, userID, data);
+                case 1302: // SaveHomeInfo (lưu bố cục sân/nhà)
+                    await HomeController.handleSaveHomeInfo(socket, userID, data);
                     break;
-                case 1311:
+                case 1303: // GetHomeDepotInfo (kho đồ trang trí)
+                    await HomeController.handleGetHomeDepotInfo(socket, userID, data);
+                    break;
+                case 1312: // SaveHomeUsed
+                    await HomeController.handleSaveHomeUsed(socket, userID, data);
+                    break;
+                case 415: // SaveRoomBG (thay đổi nền sân/nhà)
+                    await HomeController.handleSaveRoomBG(socket, userID, data);
+                    break;
+                case 410: // SaveRoomItem
+                    await HomeController.handleSaveRoomItem(socket, userID, data);
+                    break;
+                case 1304: // PlantingSeed (trồng cây)
+                    await HomeController.handlePlantingSeed(socket, userID, data);
+                    break;
+                case 1305: // DeleteSeed (nhổ cây)
+                    await HomeController.handleDeleteSeed(socket, userID, data);
+                    break;
+                case 1306: // IrrigateWater (tưới nước)
+                    await HomeController.handleIrrigateWater(socket, userID, data);
+                    break;
+                case 1308: // UseInsecticide (xịt thuốc)
+                    await HomeController.handleUseInsecticide(socket, userID, data);
+                    break;
+                case 1309: // GainFruitage (thu hoạch)
+                    await HomeController.handleGainFruitage(socket, userID, data);
+                    break;
+                case 1310: // GetSeedInfo (xem thông tin cây)
+                    await HomeController.handleGetSeedInfo(socket, userID, data);
+                    break;
+                case 1311: // HomeGuestList
                     MapController.handleHomeGuestList(socket, userID, data);
+                    break;
+                case 1318: // GetGoodsInBox
+                    MapController.handleGetGoodsInBox(socket, userID, data);
+                    break;
+                case 1319: // GetGoodsInBoxList
+                    MapController.handleGetGoodsInBoxList(socket, userID, data);
+                    break;
+                case 1313: // UserExist
+                    MapController.handleUserExist(socket, userID, data);
+                    break;
+                case 1314: // UserFlag
+                    MapController.handleUserFlag(socket, userID, data);
+                    break;
+                case 412: // GetRoomList (VIP)
+                    MapController.handleGetRoomList(socket, userID, data);
                     break;
                 case 10301: // Server Time
                     ActionController.handleGetServerTime(socket, userID, data);
                     break;
-                case 1319:
-                    MapController.handleGetGoodsInBoxList(socket, userID, data);
-                    break;
                 case 5011: // Xem tủ quần áo (Clothes)
                     await ShopController.handleViewClothes(socket, userID, data);
+                    break;
+                case 1114: // PET_SHOP_PLAY
+                    await PetController.handlePetShopPlay(socket, userID);
+                    break;
+                case 1126: // Thăng cấp / tiến hóa Lamu
+                    await PetController.handlePetLevelUp(socket, userID, data);
                     break;
                 case 5014: // Toggle mặc/cởi 1 món trong tủ quần áo
                     await ShopController.handleToggleClothes(socket, userID, data);
@@ -211,14 +306,39 @@ class MoleServer {
                 case 2040:
                     await ShopController.handleAddScore(socket, userID);
                     break;
-                case 11010: case 3106: case 609: case 10101: case 10102: case 8817: case 10302: 
+                case 602: // Phản hồi lời mời kết bạn
+                    await FriendController.handleResponseFriend(socket, userID, data);
+                    break;
+                case 603: // Gửi lời mời kết bạn
+                    await FriendController.handleAddFriend(socket, userID, data);
+                    break;
+                case 605: // Xóa bạn
+                    await FriendController.handleDeleteFriend(socket, userID, data);
+                    break;
+                case 606: // Lấy danh sách bạn
+                    await FriendController.handleGetFriendList(socket, userID, data);
+                    break;
+                case 607: // Thêm vào danh sách đen
+                    await FriendController.handleAddBlacklist(socket, userID, data);
+                    break;
+                case 608: // Xóa khỏi danh sách đen
+                    await FriendController.handleDelBlacklist(socket, userID, data);
+                    break;
+                case 609: // Lấy danh sách đen (xử lý bởi FriendController thay vì Dummy)
+                    await FriendController.handleGetBlacklist(socket, userID, data);
+                    break;
+                case 315:
+                case 11010: case 3106: case 10101: case 10102: case 8817: case 10302: 
                 case 426: case 8920: case 8606: case 8755: case 8974: case 8990: 
                 case 12018: case 11009: case 1328: case 10011: case 11085: case 12004: 
-                case 1496: case 216: case 228: case 232: case 233: case 239: 
+                case 1496: case 216: case 217: case 228: case 239:
+                case 244: case 245: case 246:
                 case 6024: case 6026: case 6034: case 805: case 9124: case 2008:
                 case 240: case 8302: case 1227: case 10303:
-                case 11014: case 1313: case 1314: case 1456:
+                case 11014: case 1456:
                 case 8938: case 1991: case 1915: case 1911:
+                case 3101: case 3102: case 3105: case 3107: case 919: case 1269:
+                case 1912: case 1914: case 3103: case 3104:
                     const DummyController = require("./src/controllers/DummyController");
                     DummyController.handleGeneric(socket, userID, cmdID, data);
                     break;

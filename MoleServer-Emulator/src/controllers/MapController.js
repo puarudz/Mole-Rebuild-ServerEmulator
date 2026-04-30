@@ -209,12 +209,14 @@ class MapController {
         const targetUser = UserModel.getUser(targetUserID) || user;
         const nick = targetUser ? (targetUser.nick || "Home") : "Home";
 
-        const HOUSE_BG_ID = 160030;  // ID nền nhà mặc định
-        
-        // Header: UserID(4) + Name(16) + Online(4) + HouseBackground(4) + ItemCount(4) + PlantCount(4) = 36 bytes
-        // + 1 item (house BG): 16 bytes = 52 bytes total
-        const ITEM_COUNT = 1;  // Phải >= 1: item đầu tiên là house background
+        const HOUSE_ID = 160030;      // ID ngôi nhà (resource/goods/BGinHome/) — dùng cho HouseBackground field
+        const TERRAIN_BG_ID = 1220001; // ID nền đất mặc định (resource/home/item/swf/1220001.swf)
+        // homeItemArr[0].ID = TERRAIN_BG_ID → HomeLogic.homeBGID = 1220001
+        // HomeView.loadHomeground() load: resource/home/item/swf/1220001.swf (có mc, username, bg, item_mc, housebg_mc)
+        const ITEM_COUNT = 1;
         const PLANT_COUNT = 0;
+        // Header: UserID(4) + Name(16) + Online(4) + HouseBackground(4) + ItemCount(4) + PlantCount(4) = 36 bytes
+        // Item format (16 bytes): ID(4) + PosX(2) + PosY(2) + Dir(1) + Visible(1) + Layer(1) + Type(1) + Other(4)
         const body = Buffer.alloc(36 + ITEM_COUNT * 16);
         let offset = 0;
         body.writeUInt32BE(targetUserID, offset); offset += 4;       // UserID
@@ -222,70 +224,29 @@ class MapController {
         nickBuf.write(nick, 0, "utf8");
         nickBuf.copy(body, offset); offset += 16;                    // Name (16 bytes)
         body.writeUInt32BE(1, offset); offset += 4;                  // Online (1=online)
-        body.writeUInt32BE(HOUSE_BG_ID, offset); offset += 4;        // HouseBackground (chỉ 4 byte ID)
+        body.writeUInt32BE(HOUSE_ID, offset); offset += 4;          // HouseBackground: 160030 (HomeView.loadHouseground dùng field này)
         body.writeUInt32BE(ITEM_COUNT, offset); offset += 4;         // ItemCount = 1
         body.writeUInt32BE(PLANT_COUNT, offset); offset += 4;        // PlantCount = 0
-        
-        // Item[0]: House Background (Layer=6)
-        // Format: ID(4), PosX(2), PosY(2), Direction(1), Visible(1), Layer(1), Type(1), Other(4)
-        body.writeUInt32BE(HOUSE_BG_ID, offset); offset += 4;        // ID
-        body.writeInt16BE(450, offset); offset += 2;                  // PosX (center)
-        body.writeInt16BE(200, offset); offset += 2;                  // PosY
-        body.writeUInt8(1, offset); offset += 1;                      // Direction (1 = right)
-        body.writeUInt8(1, offset); offset += 1;                      // Visible
-        body.writeUInt8(6, offset); offset += 1;                      // Layer (6 = House Background)
-        body.writeUInt8(0, offset); offset += 1;                      // Type
-        body.writeUInt32BE(0, offset); offset += 4;                   // Other
-        
+
+        // Item[0]: ID = TERRAIN_BG_ID → HomeLogic.homeBGID = 1220001
+        // Layer = 0 → HomeEditView.loadGoodsInHome() BỎ QUA item này (chỉ load Layer==4 hoặc Layer==6)
+        // → Không crash #1010 (không gọi mc1.gotoAndStop)
+        // HomeView.loadHomeground() vẫn dùng homeBGID=1220001 để load resource/home/item/swf/1220001.swf
+        body.writeUInt32BE(TERRAIN_BG_ID, offset); offset += 4;      // ID = 1220001 (homeBGID đọc field này)
+        body.writeInt16BE(450, offset); offset += 2;                 // PosX (client dùng readShort - signed)
+        body.writeInt16BE(200, offset); offset += 2;                 // PosY (client dùng readShort - signed)
+        body.writeUInt8(1, offset); offset += 1;                     // Direction
+        body.writeUInt8(1, offset); offset += 1;                     // Visible
+        body.writeUInt8(0, offset); offset += 1;                     // Layer = 0 → HomeEditView bỏ qua, không load SWF
+        body.writeUInt8(0, offset); offset += 1;                     // Type
+        body.writeUInt32BE(0, offset); offset += 4;                  // Other
+
         const head = PacketBuilder.makeHead(1301, userID, 0, offset);
         socket.write(head);
         socket.write(body.slice(0, offset));
-        Logger.log("RESPONSE", `Gửi thông tin nhà CMD 1301 (UserID: ${userID}, Target: ${targetUserID}, BodySize: ${offset}, PkgLen: ${17 + offset}, Items: ${ITEM_COUNT})`);
+        Logger.log("RESPONSE", `Gửi thông tin nhà CMD 1301 (UserID: ${userID}, Target: ${targetUserID}, BodySize: ${offset}, homeBGID: ${TERRAIN_BG_ID}, HouseID: ${HOUSE_ID})`);
     }
 
-    /**
-     * CMD 409 - GetRoomInfo (Vào nhà của người chơi / xem nhà)
-     * Client gửi khi người chơi bấm "Về nhà" hoặc xem nhà người khác
-     */
-    static handleGetRoomInfo(socket, userID, data) {
-        Logger.log("ACTION", `Lấy thông tin phòng/nhà (CMD 409, UserID: ${userID})`);
-        
-        let targetUserID = userID;
-        if (data && data.length >= 21) {
-            targetUserID = data.readUInt32BE(17);
-        }
-        
-        const user = UserModel.getUser(userID);
-        if (user) user.socket = socket;
-        const targetUser = UserModel.getUser(targetUserID) || user;
-        const nick = targetUser ? (targetUser.nick || "Home") : "Home";
-        
-        const body = Buffer.alloc(44);
-        let offset = 0;
-        body.writeUInt32BE(targetUserID, offset); offset += 4;       // UserID chủ nhà
-        const nickBuf = Buffer.alloc(16, 0);
-        nickBuf.write(nick, 0, "utf8");
-        nickBuf.copy(body, offset); offset += 16;                    // Tên chủ nhà
-        body.writeUInt32BE(1, offset); offset += 4;                  // Online (1=online)
-        
-        // HouseBGObj (16 bytes)
-        body.writeUInt32BE(160030, offset); offset += 4;              // ID
-        body.writeInt16BE(0, offset); offset += 2;                   // PosX
-        body.writeInt16BE(0, offset); offset += 2;                   // PosY
-        body.writeUInt8(0, offset); offset += 1;                     // Direction
-        body.writeUInt8(1, offset); offset += 1;                     // Visible
-        body.writeUInt8(6, offset); offset += 1;                     // Layer (6 = House Background)
-        body.writeUInt8(0, offset); offset += 1;                     // Type
-        body.writeUInt8(0, offset); offset += 1;                     // Rotation
-        body.write("   ", offset, 3, "utf8"); offset += 3;           // Reserved (3 bytes)
-        
-        body.writeUInt32BE(0, offset); offset += 4;                  // ItemCount (0)
-
-        const head = PacketBuilder.makeHead(409, userID, 0, offset);
-        socket.write(head);
-        socket.write(body.slice(0, offset));
-        Logger.log("RESPONSE", `Gửi thông tin phòng (CMD 409, UserID: ${userID}, Target: ${targetUserID})`);
-    }
 
     /**
      * CMD 403 - EnterGame (Vào game/phòng chơi)

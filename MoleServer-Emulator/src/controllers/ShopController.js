@@ -1,6 +1,7 @@
 const Logger = require("../core/Logger");
 const PacketBuilder = require("../core/PacketBuilder");
 const UserModel = require("../models/UserModel");
+const HomeController = require("./HomeController");
 const pool = require("../config/database");
 const fs = require("fs");
 const path = require("path");
@@ -327,12 +328,16 @@ class ShopController {
             // Thêm items (hỗ trợ combo)
             const itemsToAdd = jdItem ? String(jdItem.item_ids).split("|").map(Number) : [itemID];
             for (const addID of itemsToAdd) {
-                await pool.query(
-                    `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
-                     VALUES (?, ?, ?, 0)
-                     ON DUPLICATE KEY UPDATE amount = amount + ?`,
-                    [userID, addID, count, count]
-                );
+                if (HomeController.isHomeDepotItemID(addID)) {
+                    await HomeController.addDepotItem(userID, addID, count);
+                } else {
+                    await pool.query(
+                        `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
+                         VALUES (?, ?, ?, 0)
+                         ON DUPLICATE KEY UPDATE amount = amount + ?`,
+                        [userID, addID, count, count]
+                    );
+                }
             }
 
             // Cập nhật cache UserModel
@@ -439,8 +444,15 @@ class ShopController {
     }
 
     /** CMD 505 - Pet food */
-    static handlePetFood(socket, userID) {
-        const body = Buffer.alloc(4, 0);
+    static async handlePetFood(socket, userID) {
+        const PetController = require("./PetController");
+        const pet = await PetController.ensurePet(userID);
+        PetController.applyPetCare(pet, 0, 16);
+        PetController.syncUserPetState(userID, pet);
+        await PetController.persistPet(userID);
+
+        const body = Buffer.alloc(4);
+        body.writeUInt32BE(pet.hungry, 0);
         const head = PacketBuilder.makeHead(505, userID, 0, body.length);
         socket.write(head);
         socket.write(body);
@@ -604,12 +616,16 @@ class ShopController {
             
             const itemsToAdd = jdItem ? String(jdItem.item_ids).split("|").map(Number) : [itemID];
             for (const addID of itemsToAdd) {
-                await pool.query(
-                    `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
-                     VALUES (?, ?, ?, 0)
-                     ON DUPLICATE KEY UPDATE amount = amount + ?`,
-                    [userID, addID, count, count]
-                );
+                if (HomeController.isHomeDepotItemID(addID)) {
+                    await HomeController.addDepotItem(userID, addID, count);
+                } else {
+                    await pool.query(
+                        `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
+                         VALUES (?, ?, ?, 0)
+                         ON DUPLICATE KEY UPDATE amount = amount + ?`,
+                        [userID, addID, count, count]
+                    );
+                }
             }
         } catch(err) {
             Logger.log("ERROR", `Lỗi DB khi mua commodity: ${err.message}`);
@@ -688,12 +704,16 @@ class ShopController {
             
             const itemsToAdd = jdItem ? String(jdItem.item_ids).split("|").map(Number) : [itemID];
             for (const addID of itemsToAdd) {
-                await pool.query(
-                    `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
-                     VALUES (?, ?, ?, 0)
-                     ON DUPLICATE KEY UPDATE amount = amount + ?`,
-                    [userID, addID, count, count]
-                );
+                if (HomeController.isHomeDepotItemID(addID)) {
+                    await HomeController.addDepotItem(userID, addID, count);
+                } else {
+                    await pool.query(
+                        `INSERT INTO user_items (user_id, item_id, amount, is_wearing)
+                         VALUES (?, ?, ?, 0)
+                         ON DUPLICATE KEY UPDATE amount = amount + ?`,
+                        [userID, addID, count, count]
+                    );
+                }
             }
         } catch(err) {
             Logger.log("ERROR", `Lỗi DB khi mua Dou: ${err.message}`);
